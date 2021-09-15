@@ -51,13 +51,17 @@ def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
     row = np.concatenate([input_params,new_input_densities,[t, delta_t], new_output_densities])
     return row
 
-def write_to_file(data, header=True, batch=False):
-    """ Helper method to write training data to a file"""
+def write_to_csv_file(data, filename, bin_count, header=True, batch=False):
+    """ Helper method to write training data to a file."""
     columns = ['R', 'Mstar', 'alpha', 'd2g', 'sigma', 'Tgas'] + [f'Input_Bin_{i}' for i in range(bin_count)] + ['t','Delta_t'] + [f'Output_Bin_{i}' for i in range(bin_count)]
-    df = pd.DataFrame(res, columns=columns)
+    df = pd.DataFrame(data, columns=columns)
 
     # If writing in batch set the file mode to append
-    mode = 'a' if batch else 'w'
+    if batch:
+        mode = 'a'
+    else:
+        mode = 'w'
+    # `chunksize` in this context is how many rows to write at a time.
     df.to_csv(filename, chunksize=100000, mode=mode, header=header, index=False)
 
 if __name__ == "__main__":
@@ -72,6 +76,10 @@ if __name__ == "__main__":
     # Set this to a smaller number to get a smaller training set
     model_count = 10000
     writes = 0
+
+    use_old_csv_file = False # false, at least the first time
+
+
     for d in tqdm(range(model_count)):
         data_set = data_set = str(d).zfill(5)
 
@@ -123,10 +131,8 @@ if __name__ == "__main__":
             row = process_sample(i, snapshot_count, rhod, time, input_params)
             res.append(row)
 
-        # Write to csv every x models to avoid oom
-        if d != 0 and d % chunk_size == (model_count - 1) % chunk_size:
-            writes += 1
-            # Only write the header on first chunk
-            header = writes == 1
-            write_to_file(res, header, batch=True)
-            res = []
+        writes += 1
+        # Only write the header on first chunk
+        header = (writes == 1)
+        write_to_csv_file(res, out_filename, bin_count, header=header, batch=use_old_csv_file)
+        use_old_csv_file = True
