@@ -7,7 +7,6 @@ import random
 import math
 from tqdm import tqdm # Library for displaying progress bar
 
-bin_count = 171
 def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
     """ Creates a training sample from two points in time. Selects a random output bin for y,
         and saves the output bins for comparison.
@@ -67,8 +66,7 @@ if __name__ == "__main__":
     filename = "/scratch/keh4nb/dust_training_data_all_bins_v2.csv"
     root_data_path = f"/project/SDS-capstones-kropko21/dust_models/dust_coag_{version}"
 
-    # Store formatted data for training
-    res = []
+    bin_count = None
 
     chunk_size = 500
     # Set this to a smaller number to get a smaller training set
@@ -86,6 +84,7 @@ if __name__ == "__main__":
             input_dict = model_dict[data_set]
             input_params = [input_dict['R'], input_dict['Mstar'], input_dict['alpha'],input_dict['d2g'], input_dict['sigma'], input_dict['Tgas']]
 
+        # load model data
         try:
             # `rho_dat`: The dust mass density (in g/cm^3) in each particle size/bin at a given snapshot in time. This is the main "output", i.e., the primary result, of any given model.
             rhod = np.loadtxt(os.path.join(data_dir,"rho_d.dat"))
@@ -105,7 +104,11 @@ if __name__ == "__main__":
             print(traceback.print_exc())
             continue
 
+        # each line in the density file is one snapshot in time
+        # this should match what's in `time.dat`
         snapshot_count = len(rhod)
+        # how many size bins are there?
+        bin_count = len(a_grid)
 
         # Set the number of samples
         if snapshot_count > 20:
