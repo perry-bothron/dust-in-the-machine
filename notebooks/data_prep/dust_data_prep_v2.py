@@ -66,40 +66,55 @@ def write_to_csv_file(data, filename, bin_count, header=True, batch=False):
 
 if __name__ == "__main__":
 
-    version = "v2"
-    filename = "/scratch/keh4nb/dust_training_data_all_bins_v2.csv"
-    root_data_path = f"/project/SDS-capstones-kropko21/dust_models/dust_coag_{version}"
+    version = "v3"
+    prefix = "/scratch/jpr8yu/sds-capstones-2020/"
+    out_filename = prefix + f"/dust_training_data_all_bins_{version}.csv"
+    root_data_path = prefix + f"dust_coag_{version}"
+
+    interactive = False
 
     bin_count = None
-
-    chunk_size = 500
-    # Set this to a smaller number to get a smaller training set
+    # limit output to csv file to prevent oom errors;
+    # write samples from only every `chunk_size`-th model to file.
+    chunk_size = 1
+    # how many models to process?
     model_count = 10000
     writes = 0
 
     use_old_csv_file = False # false, at least the first time
 
+    # Open and extract the input parameters from JSON dictionary of models
+    with open(os.path.join(root_data_path, f"model_dict_{version}.json")) as f:
+        model_dict = json.load(f)
 
-    for d in tqdm(range(model_count)):
-        data_set = data_set = str(d).zfill(5)
+    # limit the number of samples per model via a snapshot limit for space and cost concerns
+    # when there are 20 snapshots in time, we get 190 samples/pairs of data points.
+    snapshot_limit = 30
+    sample_limit = int(math.factorial(snapshot_limit) * 0.5 / math.factorial(snapshot_limit-2))
 
+    if interactive:
+        bar = tqdm(range(model_count)[::chunk_size])
+    else:
+        bar = range(model_count)[::chunk_size]
+
+    for d in bar:
+        data_set = str(d).zfill(5)
         data_dir = f"{root_data_path}/data_{data_set}"
 
-        input_params = None
-        # Open and extract the input parameters
-        with open(os.path.join(root_data_path, f"model_dict_{version}.json")) as f:
-            model_dict = json.load(f)
-            input_dict = model_dict[data_set]
-            input_params = [input_dict['R'], input_dict['Mstar'], input_dict['alpha'],input_dict['d2g'], input_dict['sigma'], input_dict['Tgas']]
+        input_dict = model_dict[data_set]
+        input_params = [input_dict['R'], input_dict['Mstar'], input_dict['alpha'],input_dict['d2g'], input_dict['sigma'], input_dict['Tgas']]
 
         # load model data
         try:
             # `rho_dat`: The dust mass density (in g/cm^3) in each particle size/bin at a given snapshot in time. This is the main "output", i.e., the primary result, of any given model.
             rhod = np.loadtxt(os.path.join(data_dir,"rho_d.dat"))
             # Replace NaNs with 0s
-            rhod = np.nan_to_num(rhod)
+            if np.any(np.isnan(rhod)):
+                print("Warning: NaNs found in the dust density!")
+                rhod = np.nan_to_num(rhod)
             # Replace negative values with 0s
-            rhod = np.where(rhod<0, 0, rhod) 
+            if np.any(rhod < 0.0):
+                rhod = np.where(rhod<0, 0, rhod)
 
             # `a_grid.dat`: The dust particle size in each "bin" in centimeters.
             a_grid = np.loadtxt(os.path.join(data_dir, 'a_grid.dat'))
@@ -119,14 +134,21 @@ if __name__ == "__main__":
         bin_count = len(a_grid)
 
         # Set the number of samples
-        if snapshot_count > 20:
-            # Set the max to 100 for time as 20 cHr 2 is 190
-            samples = 190
+        if snapshot_count > snapshot_limit:
+            # Limit the number of samples to reduce cost and size of output
+            samples = sample_limit
         else:
-            # The number of pairs
-            samples = int(math.factorial(snapshot_count) / math.factorial(2) / math.factorial(snapshot_count-2))
+            # The number of time snapshot pairs
+            samples = int(math.factorial(snapshot_count) * 0.5 / math.factorial(snapshot_count-2))
 
         samples += 1
+        if interactive:
+             # include no of samples, snapshots in progress bar
+            bar.set_postfix_str(s="{:0d},{:0d}".format(samples,snapshot_count))
+        else:
+            print(d,"/",model_count, ";", "{:6.3f}%;".format(d/model_count*100.0),samples,";",snapshot_count,flush=True)
+
+        res = [] # Store formatted data for output to csv
         for i in range(samples):
             row = process_sample(i, snapshot_count, rhod, time, input_params)
             res.append(row)
