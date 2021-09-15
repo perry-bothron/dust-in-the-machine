@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
 import os
@@ -7,44 +8,48 @@ import math
 from tqdm import tqdm # Library for displaying progress bar
 
 bin_count = 171
-def process_sample(i, snapshot_count, rhod, time, input_params, bin_size=15, num_bins=151):
-    """ Creates a training sample from two points in time. Selects a random output bin for y, and saves the output bins for comparison"""
+def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
+    """ Creates a training sample from two points in time. Selects a random output bin for y,
+        and saves the output bins for comparison.
+
+    """
+
     # First sample will always be the first and last element
     if i == 0:
         idxs = [0, snapshot_count-1]
     else:
         # Pick two indexes for snapshots (lowest = input, highest = output)
         idxs = sorted([random.randint(0,snapshot_count-1) for _ in range(2)])
-    input_a = rhod[idxs[0]]
-    output_a = rhod[idxs[1]]
+    # Select out the two snapshots
+    input_d = rhod[idxs[0]]
+    output_d = rhod[idxs[1]]
+    if verbose:
+        print("indices:", idxs)
 
-    new_input_bins = []
-    new_output_bins = []
-    input_bin_sum = np.sum(input_a)
-    output_bin_sum = np.sum(output_a)
-    for i in range(len(input_a)):
-            
-        # Get the old bins and sum them together to create the new one
-        # Also normalize the input bins
-        # Could add a statement here to leave out one of the input bins
-        new_input_bin = np.sum(input_a[i]) / input_bin_sum
-        if new_input_bin < 1e-30:
-            new_input_bin = 0
-        new_input_bins.append(new_input_bin)
+    new_input_densities = []
+    new_output_densities = []
+    # Sum the densities together to aid normalization.
+    input_d_sum = np.sum(input_d)
+    output_d_sum = np.sum(output_d)
+    for i in range(len(input_d)):
+        new_input_d = np.sum(input_d[i]) / input_d_sum
+        if new_input_d < 1e-30:
+            new_input_d = 0.0
+        new_input_densities.append(new_input_d)
         
-        # Normalize the output bin so we can compare the prob distribution to it
-        new_output_bin = np.sum(output_a[i]) / output_bin_sum
-        if new_output_bin < 1e-30:
-            new_output_bin = 0
-        new_output_bins.append(new_output_bin)
+        # Normalize the output bin so we can compare the probability distribution to it
+        new_output_d = np.sum(output_d[i]) / output_d_sum
+        if new_output_d < 1e-30:
+            new_output_d = 0.0
+        new_output_densities.append(new_output_d)
 
     # Time of the input
     t = time[idxs[0]]
         
-    # Difference of time in seconds between two snapshots
+    # Difference in time (in seconds) between two snapshots
     delta_t = time[idxs[1]] - t
     
-    row = np.concatenate([input_params,new_input_bins,[t, delta_t], new_output_bins])
+    row = np.concatenate([input_params,new_input_densities,[t, delta_t], new_output_densities])
     return row
 
 def write_to_file(data, header=True, batch=False):
@@ -95,7 +100,7 @@ if __name__ == "__main__":
             # `time.dat`: The time of each snapshot (in seconds).
             time = np.loadtxt(os.path.join(data_dir, "time.dat"))
         except Exception as e:
-            print(f'model {d} skipped')
+            print(f'Problem with model {d}; skipped!')
             import traceback
             print(traceback.print_exc())
             continue
@@ -112,7 +117,7 @@ if __name__ == "__main__":
 
         samples += 1
         for i in range(samples):
-            row = process_sample(i, snapshot_count, rhod, time, input_params, num_bins=bin_count)
+            row = process_sample(i, snapshot_count, rhod, time, input_params)
             res.append(row)
 
         # Write to csv every x models to avoid oom
