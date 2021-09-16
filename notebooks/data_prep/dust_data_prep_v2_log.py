@@ -26,9 +26,9 @@ def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
         print("indices:", idxs)
 
     # Take the log10
-    new_input_bins = np.log10(input_a + 1e-150) + 50
+    new_input_bins = np.log10(input_d + 1e-150) + 50
     new_input_bins = np.where(new_input_bins<0, 0,  new_input_bins) 
-    new_output_bins = np.log10(output_a + 1e-150) + 50
+    new_output_bins = np.log10(output_d + 1e-150) + 50
     new_output_bins = np.where(new_output_bins<0, 0,  new_output_bins) 
 
     # Time of the input
@@ -103,8 +103,6 @@ if __name__ == "__main__":
                 rhod = np.nan_to_num(rhod)
             # Replace negative values with 0s
             if np.any(rhod < 0.0):
-                rhod = np.where(rhod<0, 0, rhod)
-            rhod = np.where(rhod<0, 0, rhod) 
                 rhod = np.where(rhod<0, 0, rhod)
 
             # `a_grid.dat`: The dust particle size in each "bin" in centimeters.
