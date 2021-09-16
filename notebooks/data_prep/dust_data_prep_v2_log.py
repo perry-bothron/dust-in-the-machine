@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
 import os
@@ -6,75 +7,105 @@ import random
 import math
 from tqdm import tqdm # Library for displaying progress bar
 
-bin_count = 171
-def process_sample(i, snapshot_count, rhod, time, input_params, bin_size=15, num_bins=151):
-    """ Creates a training sample from two points in time. Selects a random output bin for y, and saves the output bins for comparison"""
+def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
+    """ Creates a training sample from two points in time. Selects a random output bin for y,
+        and saves the output bins for comparison.
+
+    """
+
     # First sample will always be the first and last element
     if i == 0:
         idxs = [0, snapshot_count-1]
     else:
         # Pick two indexes for snapshots (lowest = input, highest = output)
         idxs = sorted([random.randint(0,snapshot_count-1) for _ in range(2)])
-    input_a = rhod[idxs[0]]
-    output_a = rhod[idxs[1]]
+    # Select out the two snapshots
+    input_d = rhod[idxs[0]]
+    output_d = rhod[idxs[1]]
+    if verbose:
+        print("indices:", idxs)
 
     # Take the log10
     new_input_bins = np.log10(input_a + 1e-150) + 50
     new_input_bins = np.where(new_input_bins<0, 0,  new_input_bins) 
     new_output_bins = np.log10(output_a + 1e-150) + 50
     new_output_bins = np.where(new_output_bins<0, 0,  new_output_bins) 
-    
-    
+
     # Time of the input
     t = time[idxs[0]]
-        
-    # Difference of time in seconds between two snapshots
+
+    # Difference in time (in seconds) between two snapshots
     delta_t = time[idxs[1]] - t
     
-    row = np.concatenate([input_params,new_input_bins,[t, delta_t], new_output_bins])
+    row = np.concatenate([input_params,new_input_densities,[t, delta_t], new_output_densities])
     return row
 
-def write_to_file(data, header=True, batch=False):
-    """ Helper method to write training data to a file"""
+def write_to_csv_file(data, filename, bin_count, header=True, batch=False):
+    """ Helper method to write training data to a file."""
     columns = ['R', 'Mstar', 'alpha', 'd2g', 'sigma', 'Tgas'] + [f'Input_Bin_{i}' for i in range(bin_count)] + ['t','Delta_t'] + [f'Output_Bin_{i}' for i in range(bin_count)]
-    df = pd.DataFrame(res, columns=columns)
+    df = pd.DataFrame(data, columns=columns)
 
     # If writing in batch set the file mode to append
-    mode = 'a' if batch else 'w'
+    if batch:
+        mode = 'a'
+    else:
+        mode = 'w'
+    # `chunksize` in this context is how many rows to write at a time.
     df.to_csv(filename, chunksize=100000, mode=mode, header=header, index=False)
 
 if __name__ == "__main__":
 
-    version = "v2"
-    filename = "/project/SDS-capstones-kropko21/uva-astronomy/dust_training_data_all_bins_log_v2.csv"
-    root_data_path = f"/project/SDS-capstones-kropko21/dust_models/dust_coag_{version}"
+    version = "v3"
+    prefix = "/scratch/jpr8yu/sds-capstones-2020/"
+    out_filename = prefix + f"/dust_training_data_all_bins_log_{version}.csv"
+    root_data_path = prefix + f"dust_coag_{version}"
 
-    # Store formatted data for training
-    res = []
+    interactive = False
 
-    chunk_size = 500
-    # Set this to a smaller number to get a smaller training set
+    bin_count = None
+    # limit output to csv file to prevent oom errors;
+    # write samples from only every `chunk_size`-th model to file.
+    chunk_size = 1
+    # how many models to process?
     model_count = 10000
     writes = 0
-    for d in tqdm(range(model_count)):
-        data_set = data_set = str(d).zfill(5)
 
+    use_old_csv_file = False # false, at least the first time
+
+    # Open and extract the input parameters from JSON dictionary of models
+    with open(os.path.join(root_data_path, f"model_dict_{version}.json")) as f:
+        model_dict = json.load(f)
+
+    # limit the number of samples per model via a snapshot limit for space and cost concerns
+    # when there are 20 snapshots in time, we get 190 samples/pairs of data points.
+    snapshot_limit = 30
+    sample_limit = int(math.factorial(snapshot_limit) * 0.5 / math.factorial(snapshot_limit-2))
+
+    if interactive:
+        bar = tqdm(range(model_count)[::chunk_size])
+    else:
+        bar = range(model_count)[::chunk_size]
+
+    for d in bar:
+        data_set = str(d).zfill(5)
         data_dir = f"{root_data_path}/data_{data_set}"
 
-        input_params = None
-        # Open and extract the input parameters
-        with open(os.path.join(root_data_path, f"model_dict_{version}.json")) as f:
-            model_dict = json.load(f)
-            input_dict = model_dict[data_set]
-            input_params = [input_dict['R'], input_dict['Mstar'], input_dict['alpha'],input_dict['d2g'], input_dict['sigma'], input_dict['Tgas']]
+        input_dict = model_dict[data_set]
+        input_params = [input_dict['R'], input_dict['Mstar'], input_dict['alpha'],input_dict['d2g'], input_dict['sigma'], input_dict['Tgas']]
 
+        # load model data
         try:
             # `rho_dat`: The dust mass density (in g/cm^3) in each particle size/bin at a given snapshot in time. This is the main "output", i.e., the primary result, of any given model.
             rhod = np.loadtxt(os.path.join(data_dir,"rho_d.dat"))
             # Replace NaNs with 0s
-            rhod = np.nan_to_num(rhod)
+            if np.any(np.isnan(rhod)):
+                print("Warning: NaNs found in the dust density!")
+                rhod = np.nan_to_num(rhod)
             # Replace negative values with 0s
+            if np.any(rhod < 0.0):
+                rhod = np.where(rhod<0, 0, rhod)
             rhod = np.where(rhod<0, 0, rhod) 
+                rhod = np.where(rhod<0, 0, rhod)
 
             # `a_grid.dat`: The dust particle size in each "bin" in centimeters.
             a_grid = np.loadtxt(os.path.join(data_dir, 'a_grid.dat'))
@@ -82,30 +113,39 @@ if __name__ == "__main__":
             # `time.dat`: The time of each snapshot (in seconds).
             time = np.loadtxt(os.path.join(data_dir, "time.dat"))
         except Exception as e:
-            print(f'model {d} skipped')
+            print(f'Problem with model {d}; skipped!')
             import traceback
             print(traceback.print_exc())
             continue
 
+        # each line in the density file is one snapshot in time
+        # this should match what's in `time.dat`
         snapshot_count = len(rhod)
+        # how many size bins are there?
+        bin_count = len(a_grid)
 
         # Set the number of samples
-        if snapshot_count > 20:
-            # Set the max to 100 for time as 20 cHr 2 is 190
-            samples = 190
+        if snapshot_count > snapshot_limit:
+            # Limit the number of samples to reduce cost and size of output
+            samples = sample_limit
         else:
-            # The number of pairs
-            samples = int(math.factorial(snapshot_count) / math.factorial(2) / math.factorial(snapshot_count-2))
+            # The number of time snapshot pairs
+            samples = int(math.factorial(snapshot_count) * 0.5 / math.factorial(snapshot_count-2))
 
         samples += 1
+        if interactive:
+             # include no of samples, snapshots in progress bar
+            bar.set_postfix_str(s="{:0d},{:0d}".format(samples,snapshot_count))
+        else:
+            print(d,"/",model_count, ";", "{:6.3f}%;".format(d/model_count*100.0),samples,";",snapshot_count,flush=True)
+
+        res = [] # Store formatted data for output to csv
         for i in range(samples):
-            row = process_sample(i, snapshot_count, rhod, time, input_params, num_bins=bin_count)
+            row = process_sample(i, snapshot_count, rhod, time, input_params)
             res.append(row)
 
-        # Write to csv every x models to avoid oom
-        if d != 0 and d % chunk_size == (model_count - 1) % chunk_size:
-            writes += 1
-            # Only write the header on first chunk
-            header = writes == 1
-            write_to_file(res, header, batch=True)
-            res = []
+        writes += 1
+        # Only write the header on first chunk
+        header = (writes == 1)
+        write_to_csv_file(res, out_filename, bin_count, header=header, batch=use_old_csv_file)
+        use_old_csv_file = True
