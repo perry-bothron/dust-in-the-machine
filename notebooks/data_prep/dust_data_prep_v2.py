@@ -7,7 +7,7 @@ import random
 import math
 from tqdm import tqdm # Library for displaying progress bar
 
-def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
+def process_sample(i, snapshot_count, rhod, time, input_params, low_density_cut=1e-30, verbose=False):
     """ Creates a training sample from two points in time. Selects a random output bin for y,
         and saves the output bins for comparison.
 
@@ -27,18 +27,18 @@ def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
 
     new_input_densities = []
     new_output_densities = []
-    # Sum the densities together to aid normalization.
+    # Normalize the densities so the sum over all bins is one.
     input_d_sum = np.sum(input_d)
     output_d_sum = np.sum(output_d)
     for i in range(len(input_d)):
-        new_input_d = np.sum(input_d[i]) / input_d_sum
-        if new_input_d < 1e-30:
+        new_input_d = input_d[i] / input_d_sum
+        if new_input_d < low_density_cut:
             new_input_d = 0.0
         new_input_densities.append(new_input_d)
         
         # Normalize the output bin so we can compare the probability distribution to it
-        new_output_d = np.sum(output_d[i]) / output_d_sum
-        if new_output_d < 1e-30:
+        new_output_d = output_d[i] / output_d_sum
+        if new_output_d < low_density_cut:
             new_output_d = 0.0
         new_output_densities.append(new_output_d)
 
