@@ -7,7 +7,7 @@ import random
 import math
 from tqdm import tqdm # Library for displaying progress bar
 
-def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
+def process_sample_log(i, snapshot_count, rhod, time, input_params, verbose=False):
     """ Creates a training sample from two points in time. Selects a random output bin for y,
         and saves the output bins for comparison.
 
@@ -26,10 +26,15 @@ def process_sample(i, snapshot_count, rhod, time, input_params, verbose=False):
         print("indices:", idxs)
 
     # Take the log10
-    new_input_bins = np.log10(input_d + 1e-150) + 50
-    new_input_bins = np.where(new_input_bins<0, 0,  new_input_bins) 
-    new_output_bins = np.log10(output_d + 1e-150) + 50
-    new_output_bins = np.where(new_output_bins<0, 0,  new_output_bins) 
+    new_input_d = np.log10(input_d)
+    new_output_d = np.log10(output_d)
+    # Now normalize the data so it is between -1 and +1
+    in_logd_min  = new_input_d.min()
+    in_logd_max  = new_input_d.max()
+    out_logd_min = new_output_d.min()
+    out_logd_max = new_output_d.max()
+    new_input_densities = 2.0 * (new_input_d - in_logd_min) / (in_logd_max - in_logd_min) - 1.0
+    new_output_densities = 2.0 * (new_output_d - out_logd_min) / (out_logd_max - out_logd_min) - 1.0
 
     # Time of the input
     t = time[idxs[0]]
@@ -139,7 +144,7 @@ if __name__ == "__main__":
 
         res = [] # Store formatted data for output to csv
         for i in range(samples):
-            row = process_sample(i, snapshot_count, rhod, time, input_params)
+            row = process_sample_log(i, snapshot_count, rhod, time, input_params)
             res.append(row)
 
         writes += 1
