@@ -7,7 +7,7 @@ import random
 import math
 from tqdm import tqdm # Library for displaying progress bar
 
-def process_sample(i, snapshot_count, rhod, time, input_params, low_density_cut=1e-30, verbose=False):
+def process_sample(i, snapshot_count, rhod, time, input_params, logarithmic=False, low_density_cut=1e-30, verbose=False):
     """ Creates a training sample from two points in time. Selects a random output bin for y,
         and saves the output bins for comparison.
 
@@ -25,26 +25,38 @@ def process_sample(i, snapshot_count, rhod, time, input_params, low_density_cut=
     if verbose:
         print("indices:", idxs)
 
-    new_input_densities = []
-    new_output_densities = []
-    # Normalize the densities so the sum over all bins is one.
-    input_d_sum = np.sum(input_d)
-    output_d_sum = np.sum(output_d)
-    for i in range(len(input_d)):
-        new_input_d = input_d[i] / input_d_sum
-        if new_input_d < low_density_cut:
-            new_input_d = 0.0
-        new_input_densities.append(new_input_d)
+    if not logarithmic:
+        new_input_densities = []
+        new_output_densities = []
+        # Normalize the densities so the sum over all bins is one.
+        input_d_sum = np.sum(input_d)
+        output_d_sum = np.sum(output_d)
+        for i in range(len(input_d)):
+            new_input_d = input_d[i] / input_d_sum
+            if new_input_d < low_density_cut:
+                new_input_d = 0.0
+            new_input_densities.append(new_input_d)
         
-        # Normalize the output bin so we can compare the probability distribution to it
-        new_output_d = output_d[i] / output_d_sum
-        if new_output_d < low_density_cut:
-            new_output_d = 0.0
-        new_output_densities.append(new_output_d)
+            # Normalize the output bin so we can compare the probability distribution to it
+            new_output_d = output_d[i] / output_d_sum
+            if new_output_d < low_density_cut:
+                new_output_d = 0.0
+            new_output_densities.append(new_output_d)
+    else:
+        # Take the log10
+        new_input_d = np.log10(input_d)
+        new_output_d = np.log10(output_d)
+        # Now normalize the data so its values are between -1 and +1
+        in_logd_min  = new_input_d.min()
+        in_logd_max  = new_input_d.max()
+        out_logd_min = new_output_d.min()
+        out_logd_max = new_output_d.max()
+        new_input_densities = 2.0 * (new_input_d - in_logd_min) / (in_logd_max - in_logd_min) - 1.0
+        new_output_densities = 2.0 * (new_output_d - out_logd_min) / (out_logd_max - out_logd_min) - 1.0
 
     # Time of the input
     t = time[idxs[0]]
-        
+
     # Difference in time (in seconds) between two snapshots
     delta_t = time[idxs[1]] - t
     
@@ -68,7 +80,11 @@ if __name__ == "__main__":
 
     version = "v3"
     prefix = "/scratch/jpr8yu/sds-capstones-2020/"
-    out_filename = prefix + f"/dust_training_data_all_bins_{version}.csv"
+    use_log = True
+    if not use_log:
+        out_filename = prefix + f"/dust_training_data_all_bins_{version}.csv"
+    else:
+        out_filename = prefix + f"/dust_training_data_all_bins_log_{version}.csv"
     root_data_path = prefix + f"dust_coag_{version}"
 
     interactive = False
@@ -150,7 +166,7 @@ if __name__ == "__main__":
 
         res = [] # Store formatted data for output to csv
         for i in range(samples):
-            row = process_sample(i, snapshot_count, rhod, time, input_params)
+            row = process_sample(i, snapshot_count, rhod, time, input_params, logarithmic=use_log)
             res.append(row)
 
         writes += 1
